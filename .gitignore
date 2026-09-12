@@ -6,3 +6,14 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Android / Gradle generated files
+android/Spike4MobileApp/.gradle/
+android/Spike4MobileApp/**/build/
+android/Spike4MobileApp/local.properties
+android/Spike4MobileApp/.idea/
+android/Spike4MobileApp/*.iml
+android/Spike4MobileApp/captures/
+android/Spike4MobileApp/.externalNativeBuild/
+android/Spike4MobileApp/.cxx/
+android/Spike4MobileApp/app/build/

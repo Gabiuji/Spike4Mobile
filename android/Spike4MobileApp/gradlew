@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+APP_HOME=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+if [ -n "$CLASSPATH" ]; then :; fi
+if [ -f "$APP_HOME/gradle/wrapper/gradle-wrapper.properties" ]; then :; fi
+
+# This project intentionally uses the installed Gradle distribution to avoid wrapper issues.
+GRALE_BIN="C:/Users/ogabr/.gradle/wrapper/dists/gradle-8.4-all/56r6xik2f6skrm47et0ibifug/gradle-8.4/bin/gradle.bat"
+cmd //c "$GRALE_BIN" "$@"
