@@ -28,32 +28,41 @@ class MainActivity : AppCompatActivity() {
 
     private fun runInference() {
         try {
-            val modelPath = "snn_gesture_trained.onnx"
-            val inputStream = assets.open(modelPath)
-            val bytes = inputStream.readBytes()
-            inputStream.close()
+            val modelName = "snn_gesture_trained.onnx"
+            val modelFile = File(cacheDir, modelName)
+            assets.open(modelName).use { input ->
+                modelFile.outputStream().use { output -> input.copyTo(output) }
+            }
 
-            val tempFile = File.createTempFile("snn_model_", ".onnx", cacheDir)
-            tempFile.outputStream().use { stream -> stream.write(bytes) }
+            val externalDataName = "$modelName.data"
+            val externalDataFile = File(cacheDir, externalDataName)
+            assets.open(externalDataName).use { input ->
+                externalDataFile.outputStream().use { output -> input.copyTo(output) }
+            }
 
             val sessionOptions = OrtSession.SessionOptions()
             sessionOptions.setIntraOpNumThreads(1)
             sessionOptions.setInterOpNumThreads(1)
 
             val env = OrtEnvironment.getEnvironment()
-            val session = env.createSession(tempFile.absolutePath, sessionOptions)
+            val session = env.createSession(modelFile.absolutePath, sessionOptions)
 
             val inputShape = longArrayOf(1, 8, 2, 32, 32)
             val input = FloatArray(1 * 8 * 2 * 32 * 32) { 0.0f }
             val buffer = FloatBuffer.wrap(input)
             val tensor = OnnxTensor.createTensor(env, buffer, inputShape)
+            val inferenceStart = System.nanoTime()
             val outputs = session.run(mapOf("event_sequence" to tensor))
-            val result = outputs[0].value as FloatArray
-            val logits = result.copyOf()
+            val inferenceMs = (System.nanoTime() - inferenceStart) / 1_000_000.0
+            val result = outputs[0].value as Array<FloatArray>
+            val logits = result.firstOrNull() ?: floatArrayOf()
 
             val predicted = logits.withIndex().maxByOrNull { it.value }?.index ?: -1
-            resultText.text = "Predicted class: $predicted\nFirst logits: ${logits.take(11).joinToString()}"
-            Log.i("Spike4Mobile", "Inference completed: predicted=$predicted")
+            resultText.text = "Predicted class: $predicted\nInference: %.2f ms\nFirst logits: %s".format(
+                inferenceMs,
+                logits.take(11).joinToString()
+            )
+            Log.i("Spike4Mobile", "Inference completed: predicted=$predicted latency_ms=$inferenceMs")
         } catch (throwable: Throwable) {
             Log.e("Spike4Mobile", "Inference failed", throwable)
             resultText.text = "ERROR: ${throwable.message}"

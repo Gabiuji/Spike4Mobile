@@ -56,9 +56,11 @@ dependencies {
 tasks.register<Copy>("copyOnnxModel") {
     val modelFile = file("${rootProject.projectDir}/../../host/artifacts/snn_gesture_trained.onnx")
     if (modelFile.exists()) {
-        from(modelFile)
+        from(modelFile.parentFile) {
+            include(modelFile.name)
+            include("${modelFile.name}.data")
+        }
         into(file("${projectDir}/src/main/assets"))
-        rename { "snn_gesture_trained.onnx" }
     } else {
         println("WARN: ONNX model not found at ${modelFile.absolutePath}")
     }
