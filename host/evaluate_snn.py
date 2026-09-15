@@ -28,7 +28,22 @@ def main() -> None:
     with torch.no_grad():
         predictions = model(inputs).argmax(dim=1)
     accuracy = (predictions == targets).float().mean().item()
+    confusion = torch.zeros((checkpoint["classes"], checkpoint["classes"]), dtype=torch.int64)
+    for target, prediction in zip(targets.tolist(), predictions.tolist()):
+        confusion[target, prediction] += 1
+    class_totals = confusion.sum(dim=1)
+    class_hits = confusion.diag()
+    class_accuracy = torch.where(
+        class_totals > 0,
+        class_hits.float() / class_totals.float(),
+        torch.zeros_like(class_hits, dtype=torch.float32),
+    )
     print(f"EVAL_OK samples={len(targets)} accuracy={accuracy:.3f} checkpoint={Path(ARTIFACT)}")
+    print(f"CONFUSION_MATRIX rows=target columns=prediction\n{confusion.tolist()}")
+    print(
+        "CLASS_ACCURACY "
+        + " ".join(f"{index + 1}:{value:.3f}" for index, value in enumerate(class_accuracy.tolist()))
+    )
 
 
 if __name__ == "__main__":

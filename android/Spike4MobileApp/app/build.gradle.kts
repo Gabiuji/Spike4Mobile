@@ -55,10 +55,14 @@ dependencies {
 
 tasks.register<Copy>("copyOnnxModel") {
     val modelFile = file("${rootProject.projectDir}/../../host/artifacts/snn_gesture_trained.onnx")
+    val sampleFile = file("${rootProject.projectDir}/../../host/artifacts/android_input.bin")
     if (modelFile.exists()) {
         from(modelFile.parentFile) {
             include(modelFile.name)
             include("${modelFile.name}.data")
+            if (sampleFile.exists()) {
+                include(sampleFile.name)
+            }
         }
         into(file("${projectDir}/src/main/assets"))
     } else {
