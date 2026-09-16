@@ -11,6 +11,8 @@ LABEL_FILE = Path(__file__).parent / "artifacts" / "android_input_label.txt"
 def main() -> None:
     cached = np.load(CACHE_FILE)
     sample = np.asarray(cached["inputs"][0], dtype=np.float32)
+    sample_mass = max(float(sample.sum()), 1.0)
+    sample = sample / sample_mass * 1000.0
     label = int(cached["targets"][0])
     expected_shape = (8, 2, 32, 32)
     if sample.shape != expected_shape:

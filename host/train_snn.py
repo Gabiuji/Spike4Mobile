@@ -21,16 +21,20 @@ ARTIFACT = Path(__file__).parent / "artifacts" / "snn_gesture_checkpoint.pt"
 
 
 class SurrogateSpike(torch.autograd.Function):
+    threshold = 0.75
+
     @staticmethod
     def forward(context, membrane: torch.Tensor) -> torch.Tensor:
         context.save_for_backward(membrane)
-        return (membrane >= 1.0).to(membrane.dtype)
+        return (membrane >= SurrogateSpike.threshold).to(membrane.dtype)
 
     @staticmethod
     def backward(context, gradient: torch.Tensor) -> tuple[torch.Tensor]:
         (membrane,) = context.saved_tensors
         slope = 5.0
-        surrogate_gradient = slope / (1.0 + (slope * (membrane - 1.0)).abs()).square()
+        surrogate_gradient = slope / (
+            1.0 + (slope * (membrane - SurrogateSpike.threshold)).abs()
+        ).square()
         return gradient * surrogate_gradient,
 
 
@@ -38,15 +42,19 @@ class TrainableSNN(nn.Module):
     def __init__(self, bins: int = 8, classes: int = 11) -> None:
         super().__init__()
         self.bins = bins
-        self.encoder = nn.Conv2d(2, 8, kernel_size=3, stride=2, padding=1)
+        self.encoder = nn.Sequential(
+            nn.Conv2d(2, 8, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(8, 16, kernel_size=3, stride=2, padding=1),
+        )
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.classifier = nn.Linear(8, classes)
+        self.classifier = nn.Linear(32, classes)
         self.decay = 0.5
 
     def forward(self, event_sequence: torch.Tensor) -> torch.Tensor:
         membrane = torch.zeros(
             event_sequence.shape[0],
-            8,
+            16,
             event_sequence.shape[3] // 2,
             event_sequence.shape[4] // 2,
             dtype=event_sequence.dtype,
@@ -58,7 +66,9 @@ class TrainableSNN(nn.Module):
             membrane = self.decay * membrane + current
             spikes = SurrogateSpike.apply(membrane)
             membrane = membrane * (1.0 - spikes)
-            logits.append(self.classifier(self.pool(spikes).flatten(1)))
+            spike_features = self.pool(spikes).flatten(1)
+            membrane_features = self.pool(membrane).flatten(1)
+            logits.append(self.classifier(torch.cat((spike_features, membrane_features), dim=1)))
         return torch.stack(logits, dim=1).mean(dim=1)
 
 
@@ -68,6 +78,7 @@ def build_samples(
     max_gestures: int,
     bins: int,
     cache_dir: Path | None = None,
+    balance_classes: bool = False,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     trial_names = [
         line.strip()
@@ -140,7 +151,19 @@ def build_samples(
     if not samples:
         raise RuntimeError("no training samples were created")
     inputs = np.stack(samples).astype(np.float32, copy=False)
+    sample_mass = inputs.sum(axis=(1, 2, 3, 4), keepdims=True)
+    inputs = np.divide(inputs, np.maximum(sample_mass, 1.0), dtype=np.float32) * 1000.0
     targets_array = np.asarray(targets, dtype=np.int64)
+    if balance_classes:
+        class_indices = []
+        class_counts = np.bincount(targets_array, minlength=11)
+        samples_per_class = int(class_counts[class_counts > 0].min())
+        for class_id in range(len(class_counts)):
+            indices = np.flatnonzero(targets_array == class_id)[:samples_per_class]
+            class_indices.extend(indices.tolist())
+        class_indices = np.asarray(sorted(class_indices), dtype=np.int64)
+        inputs = inputs[class_indices]
+        targets_array = targets_array[class_indices]
     return torch.from_numpy(inputs), torch.from_numpy(targets_array)
 
 
@@ -157,10 +180,15 @@ def main() -> None:
     np.random.seed(args.seed)
     cache_dir = Path(__file__).parent / "artifacts" / "sample_cache"
     inputs, targets = build_samples(
-        "trials_to_train.txt", args.max_trials, args.max_gestures, bins=8, cache_dir=cache_dir
+        "trials_to_train.txt",
+        args.max_trials,
+        args.max_gestures,
+        bins=8,
+        cache_dir=cache_dir,
+        balance_classes=True,
     )
     model = TrainableSNN().train()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=5e-3)
     criterion = nn.CrossEntropyLoss()
 
     for epoch in range(1, args.epochs + 1):

@@ -46,18 +46,19 @@ DVS/AEDAT -> eventos -> voxel grid -> SNN desenrolada -> ONNX -> Android
 ## 4. Arquitetura planejada
 
 ```text
-[Arquivo AEDAT / sensor DVS USB-OTG]
+[Arquivo AEDAT / captura de eventos no computador]
               |
               v
 [Leitura de eventos]
   x, y, timestamp_us, polarity
               |
               v
-[Pre-processamento nativo C++/NDK]
+[Pre-processamento no computador]
   janelas temporais, voxel grid/time-surface
               |
               v
-[Ponte JNI / DirectByteBuffer]
+[Transferencia de voxel grid]
+  arquivo binario / USB / ADB
               |
               v
 [ONNX Runtime Mobile]
@@ -68,7 +69,7 @@ DVS/AEDAT -> eventos -> voxel grid -> SNN desenrolada -> ONNX -> Android
   predicao, latencia, temperatura, corrente
 ```
 
-A implementacao atual esta na fase de integracao mobile. O pipeline host/Python ja foi validado com dataset real, exportacao ONNX e paridade numerica. A etapa atual e a prova de conceito Android com ONNX Runtime Mobile, usando o modelo exportado `host/artifacts/snn_gesture_trained.onnx`.
+A implementacao atual esta na fase de integracao mobile. O pipeline host/Python faz a leitura AEDAT e o pre-processamento; o Android recebe voxel grids prontos e executa somente a inferencia ONNX. Isso representa a restricao experimental de usar um smartphone convencional, sem assumir a existencia de hardware neuromorfico no aparelho.
 
 ### Estado atual da fase Android
 
@@ -78,6 +79,8 @@ A implementacao atual esta na fase de integracao mobile. O pipeline host/Python 
 - integracao do ONNX Runtime Mobile para Android (`ai.onnxruntime:onnxruntime-android:1.19.2`);
 - task automatica no Gradle (`copyOnnxModel`) para sincronizar o modelo `host/artifacts/snn_gesture_trained.onnx` e seu arquivo externo `.onnx.data` como assets da aplicacao;
 - `MainActivity.kt` implementada com copia dos assets para o cache, construcao de tensor `[1, 8, 2, 32, 32]`, execucao de sessao ONNX e exibicao da predicao/logits na interface;
+- fluxo principal definido como host preprocessado -> voxel grid binario -> Android/ONNX; o botao `RUN SNN` avalia o lote de 30 janelas reais transferidas do host;
+- botao `RUN RAW SAMPLE` mantido somente como teste auxiliar de paridade da voxelizacao Kotlin contra o host, nao como requisito do fluxo principal;
 - build Android validado com sucesso (`assembleDebug`);
 - aplicativo instalado (`:app:installDebug`) e executado com sucesso no emulador Android (`Pixel_6_Pro_API_UpsideDownCake` / `emulator-5554`), incluindo inferencia real com predicao da classe `9`;
 - `.gitignore` atualizado para ignorar artefatos de build e temporarios do Android (`.gradle`, `**/build`, `local.properties`, `.cxx`, `.externalNativeBuild`, etc.).
@@ -279,34 +282,45 @@ rótulo esperado apenas para conferência do experimento.
 
 Os testes foram executados em um Acer Nitro 5 com 16 GB de RAM e GTX 1650. O ambiente Python atual usa `torch+cpu`, portanto a GTX 1650 ainda nao participa do treinamento. A validacao mobile foi feita em emulador Android (API 34 / Pixel 6 Pro) e em um celular fisico Moto G75 5G.
 
-| Teste                       | Resultado                                                                                                                               |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Voxel grid sintetico        | `VOXEL_OK shape=(4, 2, 4, 4) total=3.0`                                                                                                 |
-| Leitura AEDAT real          | `AEDAT_OK events=1000 first_gesture_events=1000 labels=12 sensor=128x128`                                                               |
-| Paridade PyTorch/ONNX       | `PARITY_OK max_abs_error=0.00000000`                                                                                                    |
-| Pipeline real               | `PIPELINE_OK events=132219 input=(8, 1, 2, 32, 32) output=(1, 3)`                                                                       |
-| Treino minimo               | 4 amostras, 1 epoca, 24,0 s, checkpoint criado                                                                                          |
-| Avaliacao minima            | 4 amostras, accuracy `0.000`                                                                                                            |
-| Treino incremental          | 16 amostras, loss `2.4412`, accuracy `0.062`, 72,6 s na primeira rodada                                                                 |
-| Avaliacao incremental       | 12 amostras, accuracy `0.083`                                                                                                           |
-| Cache reutilizado           | mesma rodada caiu de 28,2 s para 6,8 s                                                                                                  |
-| Cache por trial             | 2 trials reutilizados, 16 amostras, treino em 3,1 s                                                                                     |
-| Escala para 5 trials        | 4 trials cacheados; o quinto foi interrompido durante leitura AEDAT                                                                     |
-| Leitura streaming           | 11 janelas nao vazias em `user01_natural`, treino cacheado em 2,9 s                                                                     |
-| Treino em 5 trials          | 50 gestos, 1 epoca, loss `2.4374`, accuracy `0.080`, 59,8 s                                                                             |
-| Avaliacao em 3 trials       | 30 gestos, accuracy `0.067`, checkpoint de 5 trials                                                                                     |
-| Treino representativo       | 100 gestos, 5 epocas, loss `2.4244`, accuracy `0.080`, 17,3 s                                                                           |
-| Avaliacao representativa    | 30 gestos, accuracy `0.067`, checkpoint de 10 trials                                                                                    |
-| Treino controlado atual     | 60 amostras, 10 epocas, loss `2.4170`, accuracy de treino `0.083`, 3,8 s em CPU                                                         |
-| Avaliacao controlada atual  | 30 amostras em 3 trials separados, accuracy `0.067`; treinamento ainda nao generaliza                                                   |
-| Treino estendido atual      | 60 amostras, 100 epocas, accuracy de treino `0.167`, 4,5 s em CPU; melhora insuficiente                                                |
-| Avaliacao estendida atual   | 30 amostras em 3 trials separados, accuracy `0.133`; previsoes concentradas na classe 8                                              |
-| Exportacao treinada         | entrada `(1, 8, 2, 32, 32)`, saida `(1, 11)`, erro maximo `0.00000006`                                                                  |
-| Compilacao Android          | `BUILD SUCCESSFUL` com wrapper Gradle 8.4, JDK 17 e ONNX Runtime Android 1.19.2                                                         |
-| Execucao Android            | APK instalado no emulador (`emulator-5554`) e inferencia concluida com `predicted=9`                                                    |
-| Latencia ONNX no emulador   | 10 execucoes: aquecimento `11,48 ms`; depois minimo `0,84 ms`, mediana `1,63 ms`, media `1,92 ms`, maximo `5,79 ms`                     |
-| Latencia ONNX no celular    | 10 execucoes: aquecimento `1,18 ms`; depois minimo `0,53 ms`, mediana `0,58 ms`, media `0,59 ms`, maximo `0,75 ms`; classe `9` em todas |
-| Amostra real no Moto G75 5G | entrada `(1, 8, 2, 32, 32)`, rótulo esperado `0`, predição `10`, latência `1,14 ms`; runtime Android validado, classificação incorreta  |
+| Teste                         | Resultado                                                                                                                               |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Voxel grid sintetico          | `VOXEL_OK shape=(4, 2, 4, 4) total=3.0`                                                                                                 |
+| Leitura AEDAT real            | `AEDAT_OK events=1000 first_gesture_events=1000 labels=12 sensor=128x128`                                                               |
+| Paridade PyTorch/ONNX         | `PARITY_OK max_abs_error=0.00000000`                                                                                                    |
+| Pipeline real                 | `PIPELINE_OK events=132219 input=(8, 1, 2, 32, 32) output=(1, 3)`                                                                       |
+| Treino minimo                 | 4 amostras, 1 epoca, 24,0 s, checkpoint criado                                                                                          |
+| Avaliacao minima              | 4 amostras, accuracy `0.000`                                                                                                            |
+| Treino incremental            | 16 amostras, loss `2.4412`, accuracy `0.062`, 72,6 s na primeira rodada                                                                 |
+| Avaliacao incremental         | 12 amostras, accuracy `0.083`                                                                                                           |
+| Cache reutilizado             | mesma rodada caiu de 28,2 s para 6,8 s                                                                                                  |
+| Cache por trial               | 2 trials reutilizados, 16 amostras, treino em 3,1 s                                                                                     |
+| Escala para 5 trials          | 4 trials cacheados; o quinto foi interrompido durante leitura AEDAT                                                                     |
+| Leitura streaming             | 11 janelas nao vazias em `user01_natural`, treino cacheado em 2,9 s                                                                     |
+| Treino em 5 trials            | 50 gestos, 1 epoca, loss `2.4374`, accuracy `0.080`, 59,8 s                                                                             |
+| Avaliacao em 3 trials         | 30 gestos, accuracy `0.067`, checkpoint de 5 trials                                                                                     |
+| Treino representativo         | 100 gestos, 5 epocas, loss `2.4244`, accuracy `0.080`, 17,3 s                                                                           |
+| Avaliacao representativa      | 30 gestos, accuracy `0.067`, checkpoint de 10 trials                                                                                    |
+| Treino controlado atual       | 60 amostras, 10 epocas, loss `2.4170`, accuracy de treino `0.083`, 3,8 s em CPU                                                         |
+| Avaliacao controlada atual    | 30 amostras em 3 trials separados, accuracy `0.067`; treinamento ainda nao generaliza                                                   |
+| Treino estendido atual        | 60 amostras, 100 epocas, accuracy de treino `0.167`, 4,5 s em CPU; melhora insuficiente                                                 |
+| Avaliacao estendida atual     | 30 amostras em 3 trials separados, accuracy `0.133`; previsoes concentradas na classe 8                                                 |
+| Ajuste de normalizacao        | massa por janela normalizada para `1000`; treino balanceado com 55 amostras; avaliacao `0.067`                                          |
+| Calibracao SNN                | limiar de disparo `0.75`, 100 epocas, loss `2.3952`, treino `0.164`, avaliacao `0.133`; colapso reduzido, ganho insuficiente            |
+| Baseline CNN temporaria       | mesma entrada normalizada, 55 amostras de treino e 30 de teste; treino `0.236`, avaliacao `0.300`                                       |
+| SNN convolucional ampliada    | duas convolucoes, 16 canais, 55 amostras, 100 epocas, 11,2 s; avaliacao `0.133`, sem superar a CNN                                      |
+| SNN com mais diversidade      | duas convolucoes, 16 canais, 198 amostras balanceadas de 20 trials, 30 epocas, 12,7 s; avaliacao `0.100`                                |
+| SNN com readout hibrido       | spikes + membrana, 198 amostras balanceadas, 100 epocas, 35,5 s; treino `0.455`, avaliacao `0.400`; mesma entrada da CNN                |
+| Exportacao treinada           | entrada `(1, 8, 2, 32, 32)`, saida `(1, 11)`, erro maximo `0.00000048`                                                                  |
+| Compilacao Android            | `BUILD SUCCESSFUL` com wrapper Gradle 8.4, JDK 17 e ONNX Runtime Android 1.19.2                                                         |
+| Execucao Android              | APK instalado no emulador (`emulator-5554`) e inferencia concluida com `predicted=9`                                                    |
+| Latencia ONNX no emulador     | 10 execucoes: aquecimento `11,48 ms`; depois minimo `0,84 ms`, mediana `1,63 ms`, media `1,92 ms`, maximo `5,79 ms`                     |
+| Latencia ONNX no celular      | 10 execucoes: aquecimento `1,18 ms`; depois minimo `0,53 ms`, mediana `0,58 ms`, media `0,59 ms`, maximo `0,75 ms`; classe `9` em todas |
+| Amostra real no Moto G75 5G   | entrada `(1, 8, 2, 32, 32)`, rótulo esperado `0`, predição `10`, latência `1,14 ms`; runtime Android validado, classificação incorreta  |
+| Modelo híbrido no Moto G75 5G | novo APK executado sem erro, entrada real, rótulo esperado `0`, predição `7`, latência `1,95 ms`                                        |
+| Avaliacao Android em lote     | 30 janelas reais no Moto G75 5G: `12/30 = 40%`, mesma acuracia do host; latencia media `0,85 ms` por `session.run`                      |
+| Estabilidade Android          | 5 lotes de 30 no Moto G75 5G: acuracia `40%` em todos; latencia por lote entre `0,80` e `0,94 ms`, media aproximada `0,87 ms`           |
+| Recursos Android              | apos os lotes: PSS do processo ~`145 MiB`, heap nativo ~`29 MiB`, bateria `31 C`, pele `32,1 C`, CPU entre `34,7` e `37,5 C`            |
+| Pre-processamento Android     | `269136` eventos brutos reconstruidos no Moto G75 5G; erro maximo do voxel grid `1,19e-6`; inferencia executada sem erro                |
 
 As acuracias acima nao sao resultados cientificos. O treinamento ainda usa poucas amostras e uma arquitetura experimental. Com 11 classes, a referencia aleatoria e aproximadamente `9,1%`.
 
@@ -316,8 +330,8 @@ As acuracias acima nao sao resultados cientificos. O treinamento ainda usa pouca
 2. Registrar matriz de confusao e acuracia por classe.
 3. Repetir paridade PyTorch/ONNX em mais amostras reais.
 4. [CONCLUIDO] Criar a aplicacao Android com ONNX Runtime Mobile, sincronizacao de modelo e execucao basica.
-5. [PARCIAL] Smoke test e baseline de latencia concluidos no emulador e no celular com CPU; uma amostra real foi executada no Moto G75 5G; ainda avaliar varias amostras e comparar CPU, GPU e NNAPI.
-6. [EM ANDAMENTO] Corrigir o colapso de previsoes em uma classe antes de exportar um novo checkpoint para Android.
+5. [PARCIAL] Avaliacao em lote host-preprocessado, recursos e paridade auxiliar de voxelizacao validados no Moto G75 5G; ainda comparar CPU, GPU e NNAPI e medir o fluxo de transferencia.
+6. [CONCLUIDO] Readout hibrido e learning rate `5e-3` elevaram a avaliacao para `40%`, acima da CNN baseline de `30%`; novo ONNX validado no Moto G75 5G.
 7. Comparar contra uma CNN densa sob o mesmo dataset.
 8. Medir energia com telemetria Android e, idealmente, medidor externo USB-C.
 
@@ -335,9 +349,9 @@ Metricas finais:
 
 O Acer Nitro 5 continua suficiente para a PoC atual. O gargalo encontrado foi a leitura completa de trials AEDAT grandes. A leitura agora percorre cada trial uma vez e retém somente eventos dentro das janelas anotadas; combinada ao cache por trial, ela reduz o uso de memoria e permite retomar o processamento. Nao houve erro de memoria.
 
-- Acer atual: suficiente para smoke tests, cache e rodadas controladas; o treino de 100 epocas levou 4,5 s, portanto nao e necessario trocar de PC nesta etapa.
+- Acer atual: suficiente para smoke tests, cache parcial e rodadas controladas; 198 amostras e 100 epocas levaram 38,3 s.
 - CUDA: recomendavel a partir de treinos com pelo menos 10 trials ou varias epocas.
-- PC mais potente: somente se uma rodada completa ficar operacionalmente impraticavel ou se forem necessarias muitas buscas de hiperparametros.
+- PC mais potente: recomendado para a rodada completa dos 98 trials, porque a construcao dos caches AEDAT passou a ser o gargalo antes do treinamento; priorizar SSD rapido, mais memoria e GPU CUDA compativel.
 - Smartphone: necessario para medir latencia, temperatura, consumo e backends moveis.
 
 A GTX 1650 pode ser aproveitada no futuro instalando uma distribuicao PyTorch com CUDA compativel. Isso e uma otimizacao de tempo, nao um requisito para concluir a PoC basica.
