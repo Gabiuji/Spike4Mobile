@@ -174,10 +174,18 @@ def main() -> None:
     parser.add_argument("--max-trials", type=int, default=2)
     parser.add_argument("--max-gestures", type=int, default=16)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is not available")
+    device = torch.device(
+        "cuda" if args.device == "auto" and torch.cuda.is_available() else args.device
+        if args.device != "auto"
+        else "cpu"
+    )
     cache_dir = Path(__file__).parent / "artifacts" / "sample_cache"
     inputs, targets = build_samples(
         "trials_to_train.txt",
@@ -187,7 +195,9 @@ def main() -> None:
         cache_dir=cache_dir,
         balance_classes=True,
     )
-    model = TrainableSNN().train()
+    model = TrainableSNN().to(device).train()
+    inputs = inputs.to(device)
+    targets = targets.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=5e-3)
     criterion = nn.CrossEntropyLoss()
 
@@ -198,7 +208,10 @@ def main() -> None:
         loss.backward()
         optimizer.step()
         accuracy = (logits.argmax(dim=1) == targets).float().mean().item()
-        print(f"epoch={epoch} samples={len(targets)} loss={loss.item():.4f} accuracy={accuracy:.3f}")
+        print(
+            f"epoch={epoch} samples={len(targets)} loss={loss.item():.4f} "
+            f"accuracy={accuracy:.3f} device={device}"
+        )
 
     ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"model": model.state_dict(), "bins": 8, "classes": 11}, ARTIFACT)

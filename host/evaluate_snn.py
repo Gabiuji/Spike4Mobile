@@ -10,10 +10,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a trained SNN on DVS Gesture test trials")
     parser.add_argument("--max-trials", type=int, default=1)
     parser.add_argument("--max-gestures", type=int, default=4)
+    parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     args = parser.parse_args()
 
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but is not available")
+    device = torch.device(
+        "cuda" if args.device == "auto" and torch.cuda.is_available() else args.device
+        if args.device != "auto"
+        else "cpu"
+    )
     checkpoint = torch.load(ARTIFACT, map_location="cpu", weights_only=True)
-    model = TrainableSNN(bins=checkpoint["bins"], classes=checkpoint["classes"])
+    model = TrainableSNN(bins=checkpoint["bins"], classes=checkpoint["classes"]).to(device)
     model.load_state_dict(checkpoint["model"])
     model.eval()
     cache_dir = Path(__file__).parent / "artifacts" / "sample_cache"
@@ -24,6 +32,8 @@ def main() -> None:
         bins=checkpoint["bins"],
         cache_dir=cache_dir,
     )
+    inputs = inputs.to(device)
+    targets = targets.to(device)
 
     with torch.no_grad():
         predictions = model(inputs).argmax(dim=1)
@@ -38,7 +48,10 @@ def main() -> None:
         class_hits.float() / class_totals.float(),
         torch.zeros_like(class_hits, dtype=torch.float32),
     )
-    print(f"EVAL_OK samples={len(targets)} accuracy={accuracy:.3f} checkpoint={Path(ARTIFACT)}")
+    print(
+        f"EVAL_OK samples={len(targets)} accuracy={accuracy:.3f} "
+        f"device={device} checkpoint={Path(ARTIFACT)}"
+    )
     print(f"CONFUSION_MATRIX rows=target columns=prediction\n{confusion.tolist()}")
     print(
         "CLASS_ACCURACY "

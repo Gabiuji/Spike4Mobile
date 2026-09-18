@@ -280,7 +280,7 @@ rótulo esperado apenas para conferência do experimento.
 
 ## 9. Resultados obtidos
 
-Os testes foram executados em um Acer Nitro 5 com 16 GB de RAM e GTX 1650. O ambiente Python atual usa `torch+cpu`, portanto a GTX 1650 ainda nao participa do treinamento. A validacao mobile foi feita em emulador Android (API 34 / Pixel 6 Pro) e em um celular fisico Moto G75 5G.
+Os resultados historicos foram obtidos em um Acer Nitro 5 com 16 GB de RAM e GTX 1650, usando `torch+cpu`. A rodada mais recente foi executada em um notebook com Intel Core i9-14900HX, 32 GB de RAM e NVIDIA RTX 4060 Laptop GPU, usando `torch 2.14.0+cu126` e CUDA 12.6. A validacao mobile foi feita em emulador Android (API 34 / Pixel 6 Pro) e em um celular fisico Moto G75 5G.
 
 | Teste                         | Resultado                                                                                                                               |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -310,6 +310,10 @@ Os testes foram executados em um Acer Nitro 5 com 16 GB de RAM e GTX 1650. O amb
 | SNN convolucional ampliada    | duas convolucoes, 16 canais, 55 amostras, 100 epocas, 11,2 s; avaliacao `0.133`, sem superar a CNN                                      |
 | SNN com mais diversidade      | duas convolucoes, 16 canais, 198 amostras balanceadas de 20 trials, 30 epocas, 12,7 s; avaliacao `0.100`                                |
 | SNN com readout hibrido       | spikes + membrana, 198 amostras balanceadas, 100 epocas, 35,5 s; treino `0.455`, avaliacao `0.400`; mesma entrada da CNN                |
+| Treino ampliado na RTX 4060   | 15 trials, 154 amostras balanceadas, 30 epocas, loss final `2.1215`, acuracia de treino `0.169`, `4,3 s`, `device=cuda`                   |
+| Avaliacao ampliada no split de teste | 24 trials, 288 amostras, acuracia `0.115`, `device=cuda`; caches de todos os trials de teste gerados                               |
+| Acuracia por classe           | classes 1:`0.958`, 2:`0.000`, 3:`0.000`, 4:`0.000`, 5:`0.000`, 6:`0.125`, 7:`0.000`, 8:`0.000`, 9:`0.000`, 10:`0.000`, 11:`0.292` |
+| Matriz de confusao ampliada   | maior concentracao nas classes previstas 1, 6 e 11; classe 1 teve `23/24` acertos e classe 8 foi sempre prevista como classe 1          |
 | Exportacao treinada           | entrada `(1, 8, 2, 32, 32)`, saida `(1, 11)`, erro maximo `0.00000048`                                                                  |
 | Compilacao Android            | `BUILD SUCCESSFUL` com wrapper Gradle 8.4, JDK 17 e ONNX Runtime Android 1.19.2                                                         |
 | Execucao Android              | APK instalado no emulador (`emulator-5554`) e inferencia concluida com `predicted=9`                                                    |
@@ -326,8 +330,8 @@ As acuracias acima nao sao resultados cientificos. O treinamento ainda usa pouca
 
 ## 10. Plano de testes
 
-1. Repetir o treino incremental tres vezes com a mesma seed e registrar variacao de tempo, loss e acuracia.
-2. Registrar matriz de confusao e acuracia por classe.
+1. Repetir o treino ampliado tres vezes com a mesma seed e registrar variacao de tempo, loss e acuracia.
+2. [CONCLUIDO] Registrar matriz de confusao e acuracia por classe no split completo de teste.
 3. Repetir paridade PyTorch/ONNX em mais amostras reais.
 4. [CONCLUIDO] Criar a aplicacao Android com ONNX Runtime Mobile, sincronizacao de modelo e execucao basica.
 5. [PARCIAL] Avaliacao em lote host-preprocessado, recursos e paridade auxiliar de voxelizacao validados no Moto G75 5G; ainda comparar CPU, GPU e NNAPI e medir o fluxo de transferencia.

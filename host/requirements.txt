@@ -1,4 +1,5 @@
 numpy>=1.26,<3
 onnx>=1.16,<2
 onnxruntime>=1.18,<2
+onnxscript>=0.7,<1
 torch>=2.3,<3
